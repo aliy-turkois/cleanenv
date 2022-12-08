@@ -4,19 +4,19 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"github.com/BurntSushi/toml"
+	"github.com/joho/godotenv"
+	"gopkg.in/yaml.v3"
 	"io"
+	"io/fs"
 	"net/url"
+	"olympos.io/encoding/edn"
 	"os"
 	"path/filepath"
 	"reflect"
 	"strconv"
 	"strings"
 	"time"
-
-	"github.com/BurntSushi/toml"
-	"github.com/joho/godotenv"
-	"gopkg.in/yaml.v3"
-	"olympos.io/encoding/edn"
 )
 
 const (
@@ -111,6 +111,42 @@ func UpdateEnv(cfg interface{}) error {
 	return readEnvVars(cfg, true)
 }
 
+// ReadConfig reads configuration file from a filesystem and parses it
+// depending on tags in structure provided. Then it reads and parses
+//
+// Example:
+//
+//	 type ConfigDatabase struct {
+//	 	Port     string `yaml:"port" env:"PORT" env-default:"5432"`
+//	 	Host     string `yaml:"host" env:"HOST" env-default:"localhost"`
+//	 	Name     string `yaml:"name" env:"NAME" env-default:"postgres"`
+//	 	User     string `yaml:"user" env:"USER" env-default:"user"`
+//	 	Password string `yaml:"password" env:"PASSWORD"`
+//	 }
+//
+//   go:embed config.yml
+//   var fs embed.FS
+
+//	 var cfg ConfigDatabase
+//
+//	 err := cleanenv.ReadConfigFS(fs, "config.yml", &cfg)
+//	 if err != nil {
+//	     ...
+//	 }
+
+func ReadConfigFS(fs fs.FS, path string, cfg interface{}) error {
+	file, err := fs.Open(path)
+	if err != nil {
+		return err
+	}
+
+	if err := parseReader(path, file, cfg); err != nil {
+		return err
+	}
+
+	return readEnvVars(cfg, false)
+}
+
 // parseFile parses configuration file according to it's extension
 //
 // Currently following file extensions are supported:
@@ -132,6 +168,10 @@ func parseFile(path string, cfg interface{}) error {
 	}
 	defer f.Close()
 
+	return parseReader(path, f, cfg)
+}
+
+func parseReader(path string, f io.Reader, cfg interface{}) (err error) {
 	// parse the file depending on the file type
 	switch ext := strings.ToLower(filepath.Ext(path)); ext {
 	case ".yaml", ".yml":
